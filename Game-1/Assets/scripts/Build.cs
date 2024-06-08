@@ -1,10 +1,14 @@
 using UnityEngine;
 using UnityEngine.Tilemaps;
+using System;
 
 public class Build : MonoBehaviour
 {
     public Tilemap tilemap;
     public TileBase tileToPlace;
+
+    public static event Action<Vector3Int, TileBase> OnTilePlaced;
+    public static event Action<Vector3Int> OnTileRemoved;
 
     void Update()
     {
@@ -28,10 +32,12 @@ public class Build : MonoBehaviour
     void PlaceTile(Vector3Int gridPos)
     {
         tilemap.SetTile(gridPos, tileToPlace);
+        OnTilePlaced?.Invoke(gridPos, tileToPlace);
     }
 
     void RemoveTile(Vector3Int gridPos)
     {
         tilemap.SetTile(gridPos, null);
+        OnTileRemoved?.Invoke(gridPos);
     }
 }
