@@ -2,7 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
 
-public class Slot : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
+public class Slot : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler, IPointerClickHandler
 {
     public Image itemImage;  // UI element to display the item sprite
     public Text itemCountText; // UI element to display the item count
@@ -67,7 +67,13 @@ public class Slot : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHand
         if (!IsEmpty())
         {
             Uimanager.Instance.SelectItem(this);
+            Debug.Log("Slot clicked: " + currentItem.itemName);
         }
+    }
+
+    public void OnPointerClick(PointerEventData eventData)
+    {
+        OnClick();
     }
 
     public void OnBeginDrag(PointerEventData eventData)

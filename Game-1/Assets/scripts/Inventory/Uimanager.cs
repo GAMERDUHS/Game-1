@@ -10,8 +10,15 @@ public class Uimanager : MonoBehaviour
     public ItemDatabase itemDatabase; // Reference to the item database
     public Button spawnButton;        // The button to press to spawn the item
     public GameObject draggableItemPrefab; // Prefab for the draggable item
-    private Slot selectedSlot;        // Currently selected slot
+    private Slot _selectedSlot;       // Private field for currently selected slot
     private DraggableItem draggableItem; // Instance of the draggable item
+    public TilemapInteraction tilemapInteraction; // Reference to the TilemapInteraction script
+
+    public Slot selectedSlot // Public property to access the selected slot
+    {
+        get { return _selectedSlot; }
+        set { _selectedSlot = value; }
+    }
 
     void Awake()
     {
@@ -37,6 +44,12 @@ public class Uimanager : MonoBehaviour
         if (itemDatabase == null)
         {
             Debug.LogError("Item database is not assigned in the Inspector!");
+            return;
+        }
+
+        if (tilemapInteraction == null)
+        {
+            Debug.LogError("TilemapInteraction script is not assigned in the Inspector!");
             return;
         }
 

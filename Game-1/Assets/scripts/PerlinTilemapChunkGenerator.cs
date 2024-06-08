@@ -1,50 +1,56 @@
 using UnityEngine;
 using UnityEngine.Tilemaps;
 using System.Collections.Generic;
+using System.Linq;
 
 public class PerlinTilemapChunkGenerator : MonoBehaviour
 {
     [System.Serializable]
     public class Structure
     {
-        public TileBase[] tiles; // Array of tiles for the structure
-        public Vector3Int[] positions; // Relative positions for each tile in the structure
-        public float probability; // Probability of the structure spawning
+        public TileBase[] tiles;
+        public Vector3Int[] positions;
+        public float probability;
     }
 
     public Tilemap tilemap;
-    public Tilemap structureTilemap; // Tilemap for placing structures
-    public TileBase[] tiles; // Array of tiles to use for generation
-    public float[] tileThresholds; // Array of thresholds for each tile
-    public int chunkSize = 16; // Size of each chunk
-    public float scale = 10f; // Perlin noise scale
-    public int seed = 42; // Seed for Perlin noise
+    public Tilemap structureTilemap;
+    public Tilemap waterTilemap;
+    public TileBase[] tiles;
+    public float[] tileThresholds;
+    public int chunkSize = 16;
+    public float scale = 10f;
+    public int seed = 42;
 
-    public TileBase grassTile; // Tile representing grass
-    public TileBase waterTile; // Tile representing water
-    public Structure[] structures; // Array of structures to place on grass tiles
-
+    public TileBase grassTile;
+    public TileBase waterTile;
+    public Structure[] structures;
+    public GameObject emptyGameObjectPrefab;
+    public Transform player;
+    
+    private HashSet<Vector3Int> destroyedStructures = new HashSet<Vector3Int>();
+    private Dictionary<Vector3Int, StructureData> structurePositions = new Dictionary<Vector3Int, StructureData>();
     private Dictionary<Vector2Int, TileChunkData> generatedChunks = new Dictionary<Vector2Int, TileChunkData>();
+    private Dictionary<Vector2Int, List<GameObject>> chunkEmptyObjects = new Dictionary<Vector2Int, List<GameObject>>();
     private Camera mainCamera;
     private Vector2Int lastChunkPos;
-    private System.Random random; // Seeded random number generator
-    private HashSet<Vector3Int> occupiedTiles = new HashSet<Vector3Int>(); // Set of occupied tiles
+    private System.Random random;
 
     void Start()
     {
         mainCamera = Camera.main;
         lastChunkPos = GetChunkPosition(mainCamera.transform.position);
-        random = new System.Random(seed); // Initialize the seeded random number generator
+        random = new System.Random(seed);
+        LoadDestroyedStructures();
+        LoadStructures();
         LoadChunksAround(lastChunkPos);
 
-        // Register for tile placement/removal events
         Build.OnTilePlaced += HandleTilePlaced;
         Build.OnTileRemoved += HandleTileRemoved;
     }
 
     void OnDestroy()
     {
-        // Unregister for tile placement/removal events
         Build.OnTilePlaced -= HandleTilePlaced;
         Build.OnTileRemoved -= HandleTileRemoved;
     }
@@ -127,9 +133,9 @@ public class PerlinTilemapChunkGenerator : MonoBehaviour
         }
 
         generatedChunks[chunkPos] = new TileChunkData { tiles = tilesInChunk, structures = structuresInChunk };
+        chunkEmptyObjects[chunkPos] = new List<GameObject>();
         LoadChunk(chunkPos);
 
-        // Attempt to place structure tiles on grass tiles
         PlaceStructureTilesOnGrass(chunkPos);
     }
 
@@ -143,7 +149,6 @@ public class PerlinTilemapChunkGenerator : MonoBehaviour
             }
         }
 
-        // Fallback in case of rounding errors or if the perlinValue is above all thresholds
         return tiles[tiles.Length - 1];
     }
 
@@ -159,8 +164,18 @@ public class PerlinTilemapChunkGenerator : MonoBehaviour
             {
                 Vector3Int tilePosition = new Vector3Int(chunkPos.x * chunkSize + x, chunkPos.y * chunkSize + y, 0);
                 tilemap.SetTile(tilePosition, null);
-                structureTilemap.SetTile(tilePosition, null); // Clear structure tilemap as well
+                structureTilemap.SetTile(tilePosition, null);
+                waterTilemap.SetTile(tilePosition, null);
             }
+        }
+
+        if (chunkEmptyObjects.ContainsKey(chunkPos))
+        {
+            foreach (GameObject emptyObject in chunkEmptyObjects[chunkPos])
+            {
+                Destroy(emptyObject);
+            }
+            chunkEmptyObjects.Remove(chunkPos);
         }
     }
 
@@ -175,11 +190,18 @@ public class PerlinTilemapChunkGenerator : MonoBehaviour
             for (int y = 0; y < chunkSize; y++)
             {
                 Vector3Int tilePosition = new Vector3Int(chunkPos.x * chunkSize + x, chunkPos.y * chunkSize + y, 0);
-                tilemap.SetTile(tilePosition, tilesInChunk[x + y * chunkSize]);
+                TileBase tile = tilesInChunk[x + y * chunkSize];
+                if (tile == waterTile)
+                {
+                    waterTilemap.SetTile(tilePosition, tile);
+                }
+                else
+                {
+                    tilemap.SetTile(tilePosition, tile);
+                }
             }
         }
 
-        // Load structures
         List<StructureData> structuresInChunk = generatedChunks[chunkPos].structures;
         foreach (var structureData in structuresInChunk)
         {
@@ -188,6 +210,8 @@ public class PerlinTilemapChunkGenerator : MonoBehaviour
                 Vector3Int structureTilePosition = structureData.position + structureData.relativePositions[i];
                 structureTilemap.SetTile(structureTilePosition, structureData.tiles[i]);
             }
+
+            PlaceEmptyGameObjectAtCenter(structureData, chunkPos);
         }
     }
 
@@ -218,60 +242,76 @@ public class PerlinTilemapChunkGenerator : MonoBehaviour
         if (generatedChunks.ContainsKey(chunkPos))
         {
             generatedChunks[chunkPos].tiles[localX + localY * chunkSize] = null;
+
+            if (structurePositions.TryGetValue(gridPos, out StructureData structureData))
+            {
+                RemoveEntireStructure(structureData);
+            }
+            destroyedStructures.Add(gridPos);  // Add to destroyed structures set
         }
+    }
+
+    void RemoveEntireStructure(StructureData structureData)
+    {
+        foreach (var tile in structureData.relativePositions)
+        {
+            Vector3Int structureTilePosition = structureData.position + tile;
+            structureTilemap.SetTile(structureTilePosition, null);
+            destroyedStructures.Add(structureTilePosition);  // Add each tile position to destroyed structures set
+        }
+        structurePositions.Remove(structureData.position);
     }
 
     void PlaceStructureTilesOnGrass(Vector2Int chunkPos)
     {
-        if (!generatedChunks.ContainsKey(chunkPos)) return;
-
-        TileBase[] tilesInChunk = generatedChunks[chunkPos].tiles;
-        List<StructureData> structuresInChunk = generatedChunks[chunkPos].structures;
-
         for (int x = 0; x < chunkSize; x++)
         {
             for (int y = 0; y < chunkSize; y++)
             {
                 Vector3Int tilePosition = new Vector3Int(chunkPos.x * chunkSize + x, chunkPos.y * chunkSize + y, 0);
-                if (tilesInChunk[x + y * chunkSize] == grassTile && !IsTileOccupied(tilePosition))
+
+                if (tilemap.GetTile(tilePosition) == grassTile && !destroyedStructures.Contains(tilePosition))
                 {
-                    // Use seeded random to decide if a structure should be placed
-                    float structureRoll = (float)random.NextDouble();
                     foreach (var structure in structures)
                     {
-                        if (structureRoll < structure.probability)
+                        if (random.NextDouble() < structure.probability)
                         {
-                            bool canPlace = true;
+                            bool canPlaceStructure = true;
 
-                            // Check if any of the structure tiles would overlap with occupied tiles
-                            foreach (var relativePosition in structure.positions)
+                            foreach (var relativePos in structure.positions)
                             {
-                                Vector3Int structureTilePosition = tilePosition + relativePosition;
-                                if (IsTileOccupied(structureTilePosition))
+                                Vector3Int structureTilePosition = tilePosition + relativePos;
+                                if (tilemap.GetTile(structureTilePosition) != grassTile || structureTilemap.GetTile(structureTilePosition) != null || destroyedStructures.Contains(structureTilePosition))
                                 {
-                                    canPlace = false;
+                                    canPlaceStructure = false;
                                     break;
                                 }
                             }
 
-                            if (canPlace)
+                            if (canPlaceStructure)
                             {
-                                // Place structure tiles and mark them as occupied
+                                foreach (var relativePos in structure.positions)
+                                {
+                                    Vector3Int structureTilePosition = tilePosition + relativePos;
+                                    structureTilemap.SetTile(structureTilePosition, structure.tiles[System.Array.IndexOf(structure.positions, relativePos)]);
+                                }
+
                                 StructureData structureData = new StructureData
                                 {
-                                    tiles = structure.tiles,
                                     position = tilePosition,
+                                    tiles = structure.tiles,
                                     relativePositions = structure.positions
                                 };
+                                structurePositions[tilePosition] = structureData;
+                                generatedChunks[chunkPos].structures.Add(structureData);
 
-                                structuresInChunk.Add(structureData);
-
-                                for (int i = 0; i < structure.tiles.Length; i++)
+                                if (!chunkEmptyObjects.ContainsKey(chunkPos))
                                 {
-                                    Vector3Int structureTilePosition = tilePosition + structure.positions[i];
-                                    structureTilemap.SetTile(structureTilePosition, structure.tiles[i]);
-                                    occupiedTiles.Add(structureTilePosition);
+                                    chunkEmptyObjects[chunkPos] = new List<GameObject>();
                                 }
+
+                                PlaceEmptyGameObjectAtCenter(structureData, chunkPos);
+
                                 break;
                             }
                         }
@@ -281,40 +321,120 @@ public class PerlinTilemapChunkGenerator : MonoBehaviour
         }
     }
 
-    bool IsTileOccupied(Vector3Int tilePosition)
+    void PlaceEmptyGameObjectAtCenter(StructureData structureData, Vector2Int chunkPos)
     {
-        if (occupiedTiles.Contains(tilePosition))
+        Vector3Int centerPosition = structureData.position + new Vector3Int(structureData.relativePositions.Length / 2, structureData.relativePositions.Length / 2, 0);
+        GameObject emptyGameObject = Instantiate(emptyGameObjectPrefab, centerPosition, Quaternion.identity);
+
+        if (!chunkEmptyObjects.ContainsKey(chunkPos))
         {
-            return true;
+            chunkEmptyObjects[chunkPos] = new List<GameObject>();
         }
 
-        for (int x = -1; x <= 1; x++)
+        chunkEmptyObjects[chunkPos].Add(emptyGameObject);
+    }
+
+    void SaveDestroyedStructures()
+    {
+        PlayerPrefs.SetString("DestroyedStructures", string.Join(";", destroyedStructures.Select(pos => $"{pos.x},{pos.y},{pos.z}").ToArray()));
+        PlayerPrefs.Save();
+    }
+
+    void LoadDestroyedStructures()
+    {
+        destroyedStructures.Clear();
+        string data = PlayerPrefs.GetString("DestroyedStructures", "");
+        if (!string.IsNullOrEmpty(data))
         {
-            for (int y = -1; y <= 1; y++)
+            foreach (var pos in data.Split(';'))
             {
-                Vector3Int checkPosition = new Vector3Int(tilePosition.x + x, tilePosition.y + y, tilePosition.z);
-                if (occupiedTiles.Contains(checkPosition))
+                var coords = pos.Split(',');
+                if (coords.Length == 3)
                 {
-                    return true;
+                    destroyedStructures.Add(new Vector3Int(int.Parse(coords[0]), int.Parse(coords[1]), int.Parse(coords[2])));
                 }
             }
         }
-
-        return false;
     }
 
-    // Data class to store chunk data
-    private class TileChunkData
+    void SaveStructures()
+    {
+        PlayerPrefs.SetString("Structures", JsonUtility.ToJson(new SerializableDictionary<Vector3Int, StructureData>(structurePositions)));
+        PlayerPrefs.Save();
+    }
+
+    void LoadStructures()
+    {
+        structurePositions.Clear();
+        string data = PlayerPrefs.GetString("Structures", "");
+        if (!string.IsNullOrEmpty(data))
+        {
+            SerializableDictionary<Vector3Int, StructureData> loadedStructures = JsonUtility.FromJson<SerializableDictionary<Vector3Int, StructureData>>(data);
+            structurePositions = new Dictionary<Vector3Int, StructureData>(loadedStructures);
+        }
+    }
+
+    void OnApplicationQuit()
+    {
+        SaveDestroyedStructures();
+        SaveStructures();
+    }
+
+    void Awake()
+    {
+        LoadDestroyedStructures();
+        LoadStructures();
+    }
+
+    [System.Serializable]
+    public class TileChunkData
     {
         public TileBase[] tiles;
         public List<StructureData> structures;
     }
 
-    // Data class to store structure data
-    private class StructureData
+    [System.Serializable]
+    public class StructureData
     {
-        public TileBase[] tiles;
         public Vector3Int position;
+        public TileBase[] tiles;
         public Vector3Int[] relativePositions;
+    }
+
+    [System.Serializable]
+    private class SerializableDictionary<TKey, TValue> : Dictionary<TKey, TValue>, ISerializationCallbackReceiver
+    {
+        [SerializeField]
+        private List<TKey> keys = new List<TKey>();
+
+        [SerializeField]
+        private List<TValue> values = new List<TValue>();
+
+        public SerializableDictionary() : base() { }
+
+        public SerializableDictionary(Dictionary<TKey, TValue> dictionary) : base(dictionary) { }
+
+        public void OnBeforeSerialize()
+        {
+            keys.Clear();
+            values.Clear();
+
+            foreach (var kvp in this)
+            {
+                keys.Add(kvp.Key);
+                values.Add(kvp.Value);
+            }
+        }
+
+        public void OnAfterDeserialize()
+        {
+            this.Clear();
+
+            if (keys.Count != values.Count)
+                throw new System.Exception("There are unequal amounts of keys and values after deserialization.");
+
+            for (int i = 0; i < keys.Count; i++)
+                this.Add(keys[i], values[i]);
+        }
     }
 }
