@@ -7,6 +7,5 @@ public class Item : ScriptableObject
     public Sprite itemSprite;
     public int itemID;
     public string description;
-    // Add other item properties as needed
-    
+    public GameObject prefab; // Prefab to spawn
 }

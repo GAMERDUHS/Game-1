@@ -14,10 +14,7 @@ public class Slot : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHand
         ClearItem(); // Ensure the slot is cleared and text is set to "Blank" initially
     }
 
-    public bool IsEmpty()
-    {
-        return currentItem == null;
-    }
+    public bool IsEmpty() => currentItem == null;
 
     public void SetItem(Item item, int count)
     {
@@ -29,24 +26,17 @@ public class Slot : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHand
 
     public void ClearItem()
     {
+        currentItem = null;
         itemImage.sprite = null;
         itemImage.enabled = false;
         ItemCount = 0; // Use the public property
-        currentItem = null;
-        if (itemCountText != null)
-        {
-            itemCountText.text = ""; // Set the text to "Blank"
-        }
     }
 
-    public Item GetItem()
-    {
-        return currentItem;
-    }
+    public Item GetItem() => currentItem;
 
     public int ItemCount
     {
-        get { return _itemCount; }
+        get => _itemCount;
         set
         {
             _itemCount = value;
@@ -62,18 +52,20 @@ public class Slot : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHand
         }
     }
 
-    public void OnClick()
+    public void OnPointerClick(PointerEventData eventData) => OnClick();
+
+    private void OnClick()
     {
         if (!IsEmpty())
         {
             Uimanager.Instance.SelectItem(this);
             Debug.Log("Slot clicked: " + currentItem.itemName);
         }
-    }
-
-    public void OnPointerClick(PointerEventData eventData)
-    {
-        OnClick();
+        else
+        {
+            Uimanager.Instance.DeselectItem();
+            Debug.Log("Slot clicked: empty slot");
+        }
     }
 
     public void OnBeginDrag(PointerEventData eventData)

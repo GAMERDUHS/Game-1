@@ -1,12 +1,13 @@
 using UnityEngine;
 
-public class PlayerMovement : MonoBehaviour
+public class Movement : MonoBehaviour
 {
-    public float moveSpeed = 5f; // Geschwindigkeit des Spielers
+    public float moveSpeed = 5f; // Player's speed
 
     private Rigidbody2D rb;
     private Vector2 movement;
     private bool facingRight = true;
+    public Vector3 spawnOffset = new Vector3(0, 1, 0); // Initial offset
 
     void Start()
     {
@@ -15,9 +16,9 @@ public class PlayerMovement : MonoBehaviour
 
     void Update()
     {
-        // Eingaben lesen
-        movement.x = Input.GetAxisRaw("Horizontal"); // A und D oder Pfeiltasten links/rechts
-        movement.y = Input.GetAxisRaw("Vertical");   // W und S oder Pfeiltasten hoch/runter
+        // Read input
+        movement.x = Input.GetAxisRaw("Horizontal"); // A and D or arrow keys left/right
+        movement.y = Input.GetAxisRaw("Vertical");   // W and S or arrow keys up/down
 
         // Check direction and flip sprite if necessary
         if (movement.x > 0 && !facingRight)
@@ -32,7 +33,7 @@ public class PlayerMovement : MonoBehaviour
 
     void FixedUpdate()
     {
-        // Physik-basierte Bewegung
+        // Physics-based movement
         rb.MovePosition(rb.position + movement * moveSpeed * Time.fixedDeltaTime);
     }
 
@@ -45,5 +46,14 @@ public class PlayerMovement : MonoBehaviour
         Vector3 scaler = transform.localScale;
         scaler.x *= -1;
         transform.localScale = scaler;
+
+        // Flip the offset by multiplying the x value by -1
+        spawnOffset.x *= -1;
+
+        // If there is a currently spawned prefab, update its position
+        if (Uimanager.Instance != null && Uimanager.Instance.CurrentSpawnedPrefab != null)
+        {
+            Uimanager.Instance.CurrentSpawnedPrefab.transform.position = transform.position + spawnOffset;
+        }
     }
 }
