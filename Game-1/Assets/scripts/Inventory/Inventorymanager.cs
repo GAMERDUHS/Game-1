@@ -18,7 +18,6 @@ public class Uimanager : MonoBehaviour
     private Slot _selectedSlot;        // Private field for currently selected slot
     private DraggableItem draggableItem; // Instance of the draggable item
     private GameObject currentSpawnedPrefab; // Reference to the currently spawned prefab
-    private bool isRotating = false;   // Flag to track if an item is currently rotating
 
     public static Uimanager UIManagerInstance { get; private set; } // Rename the property to avoid conflict
 
@@ -83,24 +82,6 @@ public class Uimanager : MonoBehaviour
         if (selectedItemImage != null)
         {
             selectedItemImage.enabled = false;
-        }
-    }
-
-    void Update()
-    {
-        if (currentSpawnedPrefab != null)
-        {
-            // Follow the player with the offset
-            currentSpawnedPrefab.transform.position = player.position + spawnOffset;
-            currentSpawnedPrefab.transform.position = player.position + player.GetComponent<Movement>().spawnOffset;
-        }
-
-        if (selectedSlot != null && selectedSlot.GetItem() != null && selectedSlot.GetItem().itemID == 1 && !isRotating)
-        {
-            if (Input.GetMouseButtonDown(0)) // Detect left mouse button click
-            {
-                StartCoroutine(RotateObject(currentSpawnedPrefab, 360f, 1f));
-            }
         }
     }
 
@@ -209,14 +190,6 @@ public class Uimanager : MonoBehaviour
         }
     }
 
-    public void OnStructureClicked(GameObject structure)
-    {
-        if (selectedSlot != null && selectedSlot.GetItem() != null && selectedSlot.GetItem().itemID == 1)
-        {
-            PerlinTilemapChunkGenerator.Instance.RemoveStructure(structure);
-        }
-    }
-
     private void SpawnPrefabAsChildOfPlayer(Item item)
     {
         if (item.prefab != null && player != null)
@@ -242,47 +215,5 @@ public class Uimanager : MonoBehaviour
         {
             Debug.LogWarning("Item prefab or player is null");
         }
-    }
-
-    private IEnumerator RotateObject(GameObject obj, float angle, float duration)
-    {
-        isRotating = true; // Set isRotating to true at the start of the rotation
-        float startRotation = obj.transform.eulerAngles.z;
-        float endRotation = startRotation + angle;
-        float t = 0.0f;
-
-        while (t < duration)
-        {
-            if (obj == null)
-            {
-                isRotating = false;
-                yield break;
-            }
-
-            t += Time.deltaTime;
-            float zRotation = Mathf.Lerp(startRotation, endRotation, t / duration) % 360.0f;
-            obj.transform.eulerAngles = new Vector3(obj.transform.eulerAngles.x, obj.transform.eulerAngles.y, zRotation);
-
-            // Check for collisions with objects tagged as "Structure"
-            Collider2D[] hitColliders = Physics2D.OverlapBoxAll(obj.transform.position, obj.GetComponent<BoxCollider2D>().size, zRotation);
-            foreach (var hitCollider in hitColliders)
-            {
-                if (hitCollider.CompareTag("Structure"))
-                {
-                    // Remove the structure from the save and destroy it
-                    PerlinTilemapChunkGenerator.Instance.RemoveStructure(hitCollider.gameObject);
-                    Destroy(hitCollider.gameObject);
-                }
-            }
-
-            yield return null;
-        }
-
-        if (obj != null)
-        {
-            obj.transform.eulerAngles = new Vector3(obj.transform.eulerAngles.x, obj.transform.eulerAngles.y, endRotation);
-        }
-
-        isRotating = false; // Set isRotating to false at the end of the rotation
     }
 }

@@ -53,11 +53,7 @@ public class PerlinTilemapChunkGenerator : MonoBehaviour
             lastChunkPos = currentChunkPos;
         }
 
-        // Handle structure click detection
-        if (Input.GetMouseButtonDown(0))
-        {
-            DetectStructureClick();
-        }
+
     }
 
     Vector2Int GetChunkPosition(Vector3 position)
@@ -263,17 +259,8 @@ public class PerlinTilemapChunkGenerator : MonoBehaviour
         }
     }
 
-    void DetectStructureClick()
-    {
-        Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-        Vector2 mousePos2D = new Vector2(mousePos.x, mousePos.y);
 
-        RaycastHit2D hit = Physics2D.Raycast(mousePos2D, Vector2.zero);
-        if (hit.collider != null && hit.collider.CompareTag("Structure"))
-        {
-            Uimanager.Instance.OnStructureClicked(hit.collider.gameObject);
-        }
-    }
+
 
     [System.Serializable]
     public class TileChunkData
@@ -289,14 +276,5 @@ public class PerlinTilemapChunkGenerator : MonoBehaviour
         public Vector3Int position;
         public int structureIndex;
     }
-
-    public void RemoveStructure(GameObject structure)
-    {
-        if (activeStructures.Contains(structure))
-        {
-            activeStructures.Remove(structure);
-            Destroy(structure);
-            Debug.Log("Structure removed");
-        }
-    }
 }
+
