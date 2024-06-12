@@ -2,290 +2,312 @@ using UnityEngine;
 using UnityEngine.Tilemaps;
 using System.Collections.Generic;
 
-public class PerlinNoiseLakeGenerator : MonoBehaviour
+public class WorldGenerator : MonoBehaviour
 {
-    public Tilemap tilemap;
-    public TileBase lakeTile;
-    public TileBase grassTile;
-    public float perlinScale = 0.1f;
-    public float threshold = 0.5f;
-    public Vector2Int chunkSize = new Vector2Int(10, 10);
-    public int renderDistance = 3;
-    public int seed = 0;
-    public int minLakeTiles = 4;
-    public int minLakeWidth = 2;
-    public int minLakeHeight = 2;
+    public Tilemap tilemap; // Reference to the tilemap
+    public RuleTile lakeTile; // Reference to the RuleTile representing the lake
+    public Tile grassTile; // Reference to the Tile representing grass
+    public GameObject player; // Reference to the player GameObject
 
-    private Vector2Int currentChunkPosition = Vector2Int.zero;
-    private Dictionary<Vector2Int, bool> generatedChunks = new Dictionary<Vector2Int, bool>();
-    private List<Vector2Int> loadedChunks = new List<Vector2Int>();
-    private Camera mainCamera;
+    public int chunkSize = 16; // Size of each chunk
+    public int renderDistance = 2; // Render distance in chunks
+    public int seed; // Seed for consistent lake generation
+
+    private const int MinLakeTiles = 4; // Minimum number of lake tiles required
+    private const float LakeChance = 0.5f; // Chance for a chunk to contain a lake
+    private Dictionary<Vector2Int, Chunk> loadedChunks = new Dictionary<Vector2Int, Chunk>(); // Dictionary to store loaded chunks
 
     void Start()
     {
-        mainCamera = Camera.main;
-        GenerateChunksAroundCamera();
+        ManageChunkLoading();
     }
 
     void Update()
     {
-        Vector2Int newChunkPosition = GetCameraChunkPosition();
-        if (newChunkPosition != currentChunkPosition)
-        {
-            currentChunkPosition = newChunkPosition;
-            GenerateChunksAroundCamera();
-        }
+        ManageChunkLoading();
     }
 
-    Vector2Int GetCameraChunkPosition()
+    void ManageChunkLoading()
     {
-        Vector3 cameraPosition = mainCamera.transform.position;
-        return new Vector2Int(
-            Mathf.FloorToInt(cameraPosition.x / chunkSize.x),
-            Mathf.FloorToInt(cameraPosition.y / chunkSize.y)
-        );
-    }
+        // Calculate the player's chunk coordinates
+        Vector2Int playerChunkCoords = GetChunkCoordinates(player.transform.position);
 
-    void GenerateChunksAroundCamera()
-    {
-        Vector2Int cameraChunkPosition = GetCameraChunkPosition();
-        List<Vector2Int> newLoadedChunks = new List<Vector2Int>();
-
+        // Iterate through the chunks within the render distance
         for (int x = -renderDistance; x <= renderDistance; x++)
         {
             for (int y = -renderDistance; y <= renderDistance; y++)
             {
-                Vector2Int chunkPosition = new Vector2Int(
-                    cameraChunkPosition.x + x,
-                    cameraChunkPosition.y + y
-                );
+                Vector2Int chunkCoords = new Vector2Int(playerChunkCoords.x + x, playerChunkCoords.y + y);
 
-                if (!generatedChunks.ContainsKey(chunkPosition))
+                // Check if the chunk is loaded
+                if (!loadedChunks.ContainsKey(chunkCoords))
                 {
-                    GenerateChunk(chunkPosition);
-                    generatedChunks[chunkPosition] = true;
-                }
-                newLoadedChunks.Add(chunkPosition);
-            }
-        }
-
-        UnloadDistantChunks(newLoadedChunks);
-        loadedChunks = newLoadedChunks;
-    }
-
-    void UnloadDistantChunks(List<Vector2Int> newLoadedChunks)
-    {
-        foreach (var chunk in loadedChunks)
-        {
-            if (!newLoadedChunks.Contains(chunk))
-            {
-                UnloadChunk(chunk);
-            }
-        }
-    }
-
-    void UnloadChunk(Vector2Int chunkPosition)
-    {
-        Vector2Int start = new Vector2Int(
-            chunkPosition.x * chunkSize.x,
-            chunkPosition.y * chunkSize.y
-        );
-
-        for (int x = 0; x < chunkSize.x; x++)
-        {
-            for (int y = 0; y < chunkSize.y; y++)
-            {
-                Vector3Int pos = new Vector3Int(start.x + x, start.y + y, 0);
-                tilemap.SetTile(pos, null);
-            }
-        }
-
-        generatedChunks.Remove(chunkPosition);
-    }
-
-    void GenerateChunk(Vector2Int chunkPosition)
-    {
-        Vector2Int start = new Vector2Int(
-            chunkPosition.x * chunkSize.x,
-            chunkPosition.y * chunkSize.y
-        );
-
-        float[,] noiseMap = GeneratePerlinNoiseMap(chunkSize.x, chunkSize.y, start.x, start.y, perlinScale);
-        bool[,] lakeMap = GenerateLakeMap(noiseMap);
-
-        for (int x = 0; x < chunkSize.x; x++)
-        {
-            for (int y = 0; y < chunkSize.y; y++)
-            {
-                Vector3Int pos = new Vector3Int(start.x + x, start.y + y, 0);
-                if (lakeMap[x, y])
-                {
-                    tilemap.SetTile(pos, lakeTile);
-                }
-                else
-                {
-                    tilemap.SetTile(pos, grassTile);
+                    // Load the chunk
+                    LoadChunk(chunkCoords);
                 }
             }
         }
 
-        FixSingleTilesAndEnforceMinimumSize(start);
+        // Unload chunks that are outside the render distance
+        List<Vector2Int> chunksToUnload = new List<Vector2Int>();
+        foreach (var loadedChunk in loadedChunks)
+        {
+            Vector2Int chunkCoords = loadedChunk.Key;
+            if (Vector2Int.Distance(chunkCoords, playerChunkCoords) > renderDistance)
+            {
+                chunksToUnload.Add(chunkCoords);
+            }
+        }
+
+        // Unload the chunks
+        foreach (Vector2Int chunkCoords in chunksToUnload)
+        {
+            UnloadChunk(chunkCoords);
+        }
     }
 
-    float[,] GeneratePerlinNoiseMap(int width, int height, int offsetX, int offsetY, float scale)
+    void LoadChunk(Vector2Int chunkCoords)
     {
-        float[,] noiseMap = new float[width, height];
-        System.Random prng = new System.Random(seed);
+        // Create a new Chunk instance
+        Chunk chunk = new Chunk(chunkCoords.x, chunkCoords.y, chunkSize);
+
+        // Generate the chunk
+        chunk.GenerateChunk(this);
+
+        // Add the chunk to the loaded chunks dictionary
+        loadedChunks.Add(chunkCoords, chunk);
+
+        // Fill empty tiles with grass
+        FillEmptyTilesWithGrass(chunkCoords);
+    }
+
+    void UnloadChunk(Vector2Int chunkCoords)
+    {
+        // Check if the chunk is loaded
+        if (loadedChunks.ContainsKey(chunkCoords))
+        {
+            // Remove the chunk from the loaded chunks dictionary
+            loadedChunks.Remove(chunkCoords);
+
+            // Clear the tiles of the chunk from the tilemap
+            for (int x = 0; x < chunkSize; x++)
+            {
+                for (int y = 0; y < chunkSize; y++)
+                {
+                    tilemap.SetTile(new Vector3Int(chunkCoords.x * chunkSize + x, chunkCoords.y * chunkSize + y, 0), null);
+                }
+            }
+        }
+    }
+
+    void FillEmptyTilesWithGrass(Vector2Int chunkCoords)
+    {
+        for (int x = 0; x < chunkSize; x++)
+        {
+            for (int y = 0; y < chunkSize; y++)
+            {
+                Vector3Int tilePosition = new Vector3Int(chunkCoords.x * chunkSize + x, chunkCoords.y * chunkSize + y, 0);
+                if (tilemap.GetTile(tilePosition) == null)
+                {
+                    tilemap.SetTile(tilePosition, grassTile);
+                }
+            }
+        }
+    }
+
+    Vector2Int GetChunkCoordinates(Vector3 position)
+    {
+        int x = Mathf.FloorToInt(position.x / chunkSize);
+        int y = Mathf.FloorToInt(position.y / chunkSize); // Use position.y for the y-axis
+        return new Vector2Int(x, y);
+    }
+
+    public void GenerateLake(int chunkX, int chunkY, int lakeWidth, int lakeHeight, int smoothness)
+    {
+        Random.InitState(seed + chunkX * 1000 + chunkY); // Set the seed based on chunk coordinates
+
+        bool[,] lakeShape;
+
+        do
+        {
+            // Create a 2D array to represent the lake shape
+            lakeShape = new bool[lakeWidth, lakeHeight];
+
+            // Randomly fill the array
+            for (int x = 0; x < lakeWidth; x++)
+            {
+                for (int y = 0; y < lakeHeight; y++)
+                {
+                    lakeShape[x, y] = Random.value > 0.5f;
+                }
+            }
+
+            // Smooth the lake shape
+            for (int i = 0; i < smoothness; i++)
+            {
+                lakeShape = SmoothLakeShape(lakeShape, lakeWidth, lakeHeight);
+            }
+
+            // Ensure no tile is isolated or has fewer than 2 neighbors
+            lakeShape = ValidateLakeShape(lakeShape, lakeWidth, lakeHeight);
+
+        } while (CountLakeTiles(lakeShape, lakeWidth, lakeHeight) < MinLakeTiles);
+
+        // Draw the lake on the tilemap
+        for (int x = 0; x < lakeWidth; x++)
+        {
+            for (int y = 0; y < lakeHeight; y++)
+            {
+                tilemap.SetTile(new Vector3Int(chunkX * chunkSize + x, chunkY * chunkSize + y, 0), lakeShape[x, y] ? lakeTile : grassTile);
+            }
+        }
+    }
+
+    bool[,] SmoothLakeShape(bool[,] lakeShape, int width, int height)
+    {
+        bool[,] newShape = new bool[width, height];
 
         for (int x = 0; x < width; x++)
         {
             for (int y = 0; y < height; y++)
             {
-                float sampleX = (x + offsetX) * scale + prng.Next(-10000, 10000);
-                float sampleY = (y + offsetY) * scale + prng.Next(-10000, 10000);
-                float noiseValue = Mathf.PerlinNoise(sampleX, sampleY);
-                noiseMap[x, y] = noiseValue;
+                int neighbors = CountNeighbors(lakeShape, x, y, width, height);
+                newShape[x, y] = neighbors > 4 || (neighbors == 4 && lakeShape[x, y]);
             }
         }
 
-        return noiseMap;
+        return newShape;
     }
 
-    bool[,] GenerateLakeMap(float[,] noiseMap)
+    bool[,] ValidateLakeShape(bool[,] lakeShape, int width, int height)
     {
-        int width = noiseMap.GetLength(0);
-        int height = noiseMap.GetLength(1);
-        bool[,] lakeMap = new bool[width, height];
+        bool[,] newShape = (bool[,])lakeShape.Clone();
 
         for (int x = 0; x < width; x++)
         {
             for (int y = 0; y < height; y++)
             {
-                lakeMap[x, y] = noiseMap[x, y] > threshold;
-            }
-        }
-
-        return lakeMap;
-    }
-
-    void FixSingleTilesAndEnforceMinimumSize(Vector2Int start)
-    {
-        for (int x = 0; x < chunkSize.x; x++)
-        {
-            for (int y = 0; y < chunkSize.y; y++)
-            {
-                Vector3Int pos = new Vector3Int(start.x + x, start.y + y, 0);
-                TileBase tile = tilemap.GetTile(pos);
-
-                if (tile == lakeTile)
+                if (lakeShape[x, y])
                 {
-                    int connectingTiles = GetConnectingTilesCount(pos);
-                    if (connectingTiles < 2)
+                    int neighbors = CountNeighbors(lakeShape, x, y, width, height);
+                    if (neighbors < 2)
                     {
-                        tilemap.SetTile(pos, grassTile);
-                        UpdateSurroundingTiles(pos);
+                        newShape[x, y] = false;
                     }
-                    else
+                }
+            }
+        }
+
+        return RemoveIsolatedTiles(newShape, width, height);
+    }
+
+    bool[,] RemoveIsolatedTiles(bool[,] lakeShape, int width, int height)
+    {
+        bool[,] newShape = (bool[,])lakeShape.Clone();
+        bool changedShape;
+
+        do
+        {
+            changedShape = false;
+            for (int x = 0; x < width; x++)
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    if (lakeShape[x, y])
                     {
-                        bool isValidLake = CheckMinimumSize(pos);
-                        if (!isValidLake)
+                        int neighbors = CountNeighbors(lakeShape, x, y, width, height);
+                        if (neighbors < 2)
                         {
-                            tilemap.SetTile(pos, grassTile);
-                            UpdateSurroundingTiles(pos);
+                            newShape[x, y] = false;
+                            changedShape = true;
                         }
                     }
                 }
             }
-        }
+            lakeShape = (bool[,])newShape.Clone();
+        } while (changedShape);
+
+        return newShape;
     }
 
-    int GetConnectingTilesCount(Vector3Int pos)
+    int CountNeighbors(bool[,] lakeShape, int x, int y, int width, int height)
     {
         int count = 0;
-        Vector3Int[] directions = new Vector3Int[]
-        {
-            new Vector3Int(1, 0, 0), new Vector3Int(-1, 0, 0),
-            new Vector3Int(0, 1, 0), new Vector3Int(0, -1, 0)
-        };
 
-        foreach (var direction in directions)
+        for (int nx = x - 1; nx <= x + 1; nx++)
         {
-            if (tilemap.GetTile(pos + direction) == lakeTile)
+            for (int ny = y - 1; ny <= y + 1; ny++)
             {
-                count++;
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height)
+                {
+                    if (nx != x || ny != y)
+                    {
+                        if (lakeShape[nx, ny])
+                        {
+                            count++;
+                        }
+                    }
+                }
             }
         }
 
         return count;
     }
 
-    void UpdateSurroundingTiles(Vector3Int pos)
+    int CountLakeTiles(bool[,] lakeShape, int width, int height)
     {
-        Vector3Int[] directions = new Vector3Int[]
-        {
-            new Vector3Int(1, 0, 0), new Vector3Int(-1, 0, 0),
-            new Vector3Int(0, 1, 0), new Vector3Int(0, -1, 0)
-        };
+        int count = 0;
 
-        foreach (var direction in directions)
+        for (int x = 0; x < width; x++)
         {
-            Vector3Int neighborPos = pos + direction;
-            TileBase neighborTile = tilemap.GetTile(neighborPos);
-
-            if (neighborTile == lakeTile)
+            for (int y = 0; y < height; y++)
             {
-                int connectingTiles = GetConnectingTilesCount(neighborPos);
-                if (connectingTiles < 2)
+                if (lakeShape[x, y])
                 {
-                    tilemap.SetTile(neighborPos, grassTile);
-                    UpdateSurroundingTiles(neighborPos);
+                    count++;
                 }
-                else
+            }
+        }
+
+        return count;
+    }
+
+    class Chunk
+    {
+        public int x, y; // Chunk coordinates
+        public int size; // Size of the chunk
+
+        public Chunk(int x, int y, int size)
+        {
+            this.x = x;
+            this.y = y;
+            this.size = size;
+        }
+
+        public void GenerateChunk(WorldGenerator worldGenerator)
+        {
+            Random.InitState(worldGenerator.seed + x * 1000 + y); // Set the seed based on chunk coordinates
+
+            // Determine if this chunk will contain a lake
+            if (Random.value <= LakeChance)
+            {
+                // Generate a lake for this chunk
+                int lakeWidth = Random.Range(size / 2, size);
+                int lakeHeight = Random.Range(size / 2, size);
+                int smoothness = Random.Range(3, 8);
+                worldGenerator.GenerateLake(x, y, lakeWidth, lakeHeight, smoothness);
+            }
+            else
+            {
+                // Fill the chunk with grass
+                for (int i = 0; i < size; i++)
                 {
-                    bool isValidLake = CheckMinimumSize(neighborPos);
-                    if (!isValidLake)
+                    for (int j = 0; j < size; j++)
                     {
-                        tilemap.SetTile(neighborPos, grassTile);
-                        UpdateSurroundingTiles(neighborPos);
+                        worldGenerator.tilemap.SetTile(new Vector3Int(x * size + i, y * size + j, 0), worldGenerator.grassTile);
                     }
                 }
             }
         }
-    }
-
-    bool CheckMinimumSize(Vector3Int pos)
-    {
-        int width = 1;
-        int height = 1;
-
-        int x = pos.x;
-        while (tilemap.GetTile(new Vector3Int(x + 1, pos.y, 0)) == lakeTile)
-        {
-            width++;
-            x++;
-        }
-
-        x = pos.x;
-        while (tilemap.GetTile(new Vector3Int(x - 1, pos.y, 0)) == lakeTile)
-        {
-            width++;
-            x--;
-        }
-
-        int y = pos.y;
-        while (tilemap.GetTile(new Vector3Int(pos.x, y + 1, 0)) == lakeTile)
-        {
-            height++;
-            y++;
-        }
-
-        y = pos.y;
-        while (tilemap.GetTile(new Vector3Int(pos.x, y - 1, 0)) == lakeTile)
-        {
-            height++;
-            y--;
-        }
-
-        return width >= minLakeWidth && height >= minLakeHeight;
     }
 }

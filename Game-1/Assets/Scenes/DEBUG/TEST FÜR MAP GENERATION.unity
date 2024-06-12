@@ -463,14 +463,10 @@ MonoBehaviour:
   tilemap: {fileID: 46879799}
   lakeTile: {fileID: 11400000, guid: 22fa78b122143f24eb937317102b0501, type: 2}
   grassTile: {fileID: 11400000, guid: ba813ec377cdd5f4a9742c68fbf369f7, type: 2}
-  perlinScale: 0.2
-  threshold: 0.5
-  chunkSize: {x: 10, y: 10}
-  renderDistance: 3
-  seed: 45375373
-  minLakeTiles: 2
-  minLakeWidth: 2
-  minLakeHeight: 2
+  player: {fileID: 162057753}
+  chunkSize: 16
+  renderDistance: 2
+  seed: 0
 --- !u!156049354 &597911802
 Grid:
   m_ObjectHideFlags: 0
